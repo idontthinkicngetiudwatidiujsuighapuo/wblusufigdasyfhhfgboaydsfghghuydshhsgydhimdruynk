@@ -989,6 +989,18 @@ RageGroup:AddToggle('AutoSwitchWpns', { Text = 'Auto Switch Weapons', Default = 
 RageGroup:AddToggle('RageTP', { Text = 'TP On Top', Default = false })
 RageGroup:AddSlider('MaxDistance', { Text = 'TP Max Distance', Default = 10000, Min = 1, Max = 10000, Rounding = 0 })
 RageGroup:AddSlider('HeightOffset', { Text = 'TP Height', Default = 5, Min = -20, Max = 40, Rounding = 0 })
+local CombatGroup = Tabs.Combat:AddLeftGroupbox('FFA')
+CombatGroup:AddToggle('Master', { Text = 'Enable', Default = false }):AddKeyPicker('CombatKey', { Default = 'V', SyncToggleState = true, Mode = 'Toggle', Text = 'Combat Toggle' })
+CombatGroup:AddToggle('AA', { Text = 'Enable Anti-Aim', Default = false })
+
+CombatGroup:AddSlider('Speed', { Text = 'Spin Speed', Default = 1000, Min = 0, Max = 5000, Rounding = 0 })
+CombatGroup:AddSlider('Jitter', { Text = 'Jitter Intensity', Default = 1, Min = 0, Max = 10, Rounding = 1 })
+CombatGroup:AddSlider('Dist', { Text = 'Max Distance', Default = 700, Min = 50, Max = 2500, Rounding = 0 })
+CombatGroup:AddSlider('Offset', { Text = 'Camera Z-Offset', Default = 10, Min = -10, Max = 20, Rounding = 1 })
+
+CombatGroup:AddDivider()
+CombatGroup:AddToggle('Lock', { Text = 'Specific Target Only', Default = false })
+CombatGroup:AddDropdown('Target', { Values = {}, Text = 'Select Player', Default = 1 })
 
 local ChamsGroup = Tabs.Visuals:AddLeftGroupbox('Chams esp')
 ChamsGroup:AddToggle('ChamsOutline', { Text = 'Chams Outline', Default = false }):AddColorPicker('OutlineColorChams', { Default = Color3.new(1,1,1) })
@@ -2688,6 +2700,95 @@ root.CFrame = root.CFrame + (moveDir * (speed * 0.015))
 end
 flyBG.CFrame = cf
 end
+end)
+local lastRefresh = 0
+
+RunService.RenderStepped:Connect(function()
+    -- 1. CLOCK-IN (Check if UI is actually there)
+    local T = getgenv().Toggles
+    local O = getgenv().Options
+    
+    if not T or not O or not T.Master or not O.Target then 
+        return 
+    end
+
+    -- 2. FORCE PLAYER LIST UPDATE (If empty, this fixes it)
+    if tick() - lastRefresh > 2 then
+        local names = {}
+        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+            if p ~= game:GetService("Players").LocalPlayer then 
+                table.insert(names, p.Name) 
+            end
+        end
+        
+        -- Safe call to update dropdown
+        pcall(function()
+            O.Target:SetValues(names)
+        end)
+        lastRefresh = tick()
+    end
+
+    -- 3. IS THE TOGGLE ON?
+    if not T.Master.Value then return end
+    
+    local char = game:GetService("Players").LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+
+    -- 4. FINDING THE VICTIM
+    local currentTarget = nil
+    
+    if T.Lock.Value and O.Target.Value then
+        local p = game:GetService("Players"):FindFirstChild(tostring(O.Target.Value))
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            currentTarget = p
+        end
+    else
+        local maxD = O.Dist.Value or 700
+        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+            if p ~= game:GetService("Players").LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local h = p.Character:FindFirstChild("Humanoid")
+                if h and h.Health > 0 then
+                    local d = (hrp.Position - p.Character.HumanoidRootPart.Position).Magnitude
+                    if d < maxD then
+                        maxD = d
+                        currentTarget = p
+                    end
+                end
+            end
+        end
+    end
+
+    -- 5. THE ACTION
+    if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("Head") then
+        -- Print for proof (Delete this line once it works)
+        print("Targeting: " .. currentTarget.Name)
+
+        local targetHead = currentTarget.Character.Head
+        local zOffset = O.Offset.Value or 10
+        local baseCFrame = targetHead.CFrame * CFrame.new(0, 0, 3)
+        local camPos = baseCFrame.Position + Vector3.new(0, 5, zOffset)
+        
+        workspace.CurrentCamera.CFrame = CFrame.new(camPos, targetHead.Position)
+
+        if T.AA.Value then
+            local sSpeed = O.Speed.Value or 1000
+            local jInt = O.Jitter.Value or 1
+            local jitter = Vector3.new(math.random(-jInt, jInt), math.random(-jInt, jInt), math.random(-jInt, jInt))
+            hrp.CFrame = baseCFrame * CFrame.Angles(0, tick() * sSpeed, 0) + jitter
+        else
+            hrp.CFrame = baseCFrame
+        end
+
+        -- Transparency & Triggerbot
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") then part.LocalTransparencyModifier = 1 end
+        end
+
+        if mouse.Target and mouse.Target:IsDescendantOf(currentTarget.Character) then
+            if mouse1click then mouse1click() end
+        end
+    end
 end)
 
 local walkBV = nil
